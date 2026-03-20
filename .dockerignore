@@ -1,0 +1,6 @@
+mysql-data/
+*.sock
+__pycache__/
+*.pyc
+.env
+.git/

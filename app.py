@@ -1,4 +1,6 @@
 import os
+import time
+import threading
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_mysqldb import MySQL
 
@@ -22,9 +24,10 @@ def init_db():
             message TEXT
         );
         ''')
-        mysql.connection.commit()  
+        mysql.connection.commit()
         cur.close()
 
+# ── Existing routes (unchanged) ───────────────────────────────────────
 @app.route('/')
 def hello():
     cur = mysql.connection.cursor()
@@ -42,7 +45,140 @@ def submit():
     cur.close()
     return jsonify({'message': new_message})
 
+# ── K8s client helper ─────────────────────────────────────────────────
+def get_k8s_client():
+    try:
+        from kubernetes import client, config
+        try:
+            config.load_incluster_config()
+        except Exception:
+            config.load_kube_config()
+        return client.CoreV1Api()
+    except Exception:
+        return None
+
+# ── Spike state ───────────────────────────────────────────────────────
+spike_active = False
+
+# ── New API routes ────────────────────────────────────────────────────
+@app.route("/api/messages", methods=["GET"])
+def api_get_messages():
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT id, message FROM messages ORDER BY id DESC LIMIT 50")
+        rows = [{"id": r[0], "message": r[1]} for r in cur.fetchall()]
+        cur.close()
+        return jsonify({"status": "ok", "messages": rows, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/messages", methods=["POST"])
+def api_post_message():
+    data = request.get_json()
+    text = (data or {}).get("message", "").strip()
+    if not text:
+        return jsonify({"status": "error", "error": "Message is empty"}), 400
+    if len(text) > 500:
+        return jsonify({"status": "error", "error": "Message too long"}), 400
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("INSERT INTO messages (message) VALUES (%s)", (text,))
+        mysql.connection.commit()
+        cur.close()
+        return jsonify({"status": "ok", "message": text})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/messages/<int:msg_id>", methods=["DELETE"])
+def api_delete_message(msg_id):
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("DELETE FROM messages WHERE id = %s", (msg_id,))
+        mysql.connection.commit()
+        affected = cur.rowcount
+        cur.close()
+        if affected == 0:
+            return jsonify({"status": "error", "error": "Not found"}), 404
+        return jsonify({"status": "ok", "deleted_id": msg_id})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/pods", methods=["GET"])
+def api_get_pods():
+    namespace = os.environ.get("POD_NAMESPACE", "default")
+    v1 = get_k8s_client()
+    if v1:
+        try:
+            pods = v1.list_namespaced_pod(namespace=namespace)
+            result = []
+            for p in pods.items:
+                containers = p.status.container_statuses or []
+                restarts = sum(c.restart_count for c in containers)
+                state = "running"
+                if p.status.phase == "Pending":
+                    state = "pending"
+                elif p.status.phase == "Failed":
+                    state = "crashed"
+                elif not all(c.ready for c in containers):
+                    state = "recovering"
+                result.append({
+                    "name": p.metadata.name,
+                    "status": state,
+                    "restarts": restarts,
+                    "node": p.spec.node_name or "unknown",
+                    "image": containers[0].image if containers else "unknown",
+                })
+            return jsonify({"status": "ok", "pods": result, "source": "live"})
+        except Exception as e:
+            return jsonify({"status": "error", "error": str(e)}), 500
+    else:
+        return jsonify({
+            "status": "ok",
+            "source": "simulated",
+            "pods": [
+                {"name": "flaskapp-demo", "status": "running",
+                 "restarts": 0, "node": "local-docker", "image": "flaskapp:latest"},
+                {"name": "mysql-0", "status": "running",
+                 "restarts": 0, "node": "local-docker", "image": "mysql:5.7"},
+            ]
+        })
+
+
+@app.route("/api/spike", methods=["POST"])
+def api_spike():
+    global spike_active
+    if spike_active:
+        return jsonify({"status": "already_running"})
+    def burn_cpu(duration=10):
+        global spike_active
+        spike_active = True
+        deadline = time.time() + duration
+        while time.time() < deadline:
+            _ = [x**2 for x in range(10000)]
+        spike_active = False
+    threading.Thread(target=burn_cpu, daemon=True).start()
+    return jsonify({"status": "ok", "message": "Spike started for 10 seconds"})
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/ready", methods=["GET"])
+def ready():
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        return jsonify({"status": "ready"})
+    except Exception:
+        return jsonify({"status": "not ready"}), 503
+
+
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=5000, debug=True)
-
