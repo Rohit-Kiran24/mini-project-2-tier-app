@@ -14,12 +14,13 @@ spec:
       labels:
         app: two-tier-app
     spec:
+      serviceAccountName: flask-sa
       containers:
         - name: two-tier-app
           image: trainwithshubham/flaskapp:latest
           env:
             - name: MYSQL_HOST
-              value: "10.97.64.16"          # this is your mysql's service clusture IP, Make sure to change it with yours
+              value: "mysql"
             - name: MYSQL_PASSWORD
               value: "admin"
             - name: MYSQL_USER
@@ -29,3 +30,15 @@ spec:
           ports:
             - containerPort: 5000
           imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
