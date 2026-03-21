@@ -1,49 +1,39 @@
 import os
 import time
 import threading
-from flask import Flask, render_template, request, redirect, url_for, jsonify
-from flask_mysqldb import MySQL
+import json
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import QueuePool
 
 app = Flask(__name__)
 
-# Configure MySQL from environment variables
-app.config['MYSQL_HOST'] = os.environ.get('MYSQL_HOST', 'localhost')
-app.config['MYSQL_USER'] = os.environ.get('MYSQL_USER', 'default_user')
-app.config['MYSQL_PASSWORD'] = os.environ.get('MYSQL_PASSWORD', 'default_password')
-app.config['MYSQL_DB'] = os.environ.get('MYSQL_DB', 'default_db')
+# ── Database connection pool (created once, reused forever) ───────────
+DB_URL = "mysql+pymysql://{user}:{pw}@{host}/{db}".format(
+    user=os.environ.get("MYSQL_USER", "root"),
+    pw=os.environ.get("MYSQL_PASSWORD", "admin"),
+    host=os.environ.get("MYSQL_HOST", "mysql"),
+    db=os.environ.get("MYSQL_DB", "mydb"),
+)
 
-# Initialize MySQL
-mysql = MySQL(app)
+engine = create_engine(
+    DB_URL,
+    poolclass=QueuePool,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
 
 def init_db():
-    with app.app_context():
-        cur = mysql.connection.cursor()
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS messages (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            message TEXT
-        );
-        ''')
-        mysql.connection.commit()
-        cur.close()
-
-# ── Existing routes (unchanged) ───────────────────────────────────────
-@app.route('/')
-def hello():
-    cur = mysql.connection.cursor()
-    cur.execute('SELECT message FROM messages')
-    messages = cur.fetchall()
-    cur.close()
-    return render_template('index.html', messages=messages)
-
-@app.route('/submit', methods=['POST'])
-def submit():
-    new_message = request.form.get('new_message')
-    cur = mysql.connection.cursor()
-    cur.execute('INSERT INTO messages (message) VALUES (%s)', [new_message])
-    mysql.connection.commit()
-    cur.close()
-    return jsonify({'message': new_message})
+    with engine.connect() as conn:
+        conn.execute(text('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                message TEXT
+            )
+        '''))
+        conn.commit()
 
 # ── K8s client helper ─────────────────────────────────────────────────
 def get_k8s_client():
@@ -57,57 +47,7 @@ def get_k8s_client():
     except Exception:
         return None
 
-# ── Spike flag (file-based lock — works across Gunicorn workers) ──────
-SPIKE_FLAG = "/tmp/spike_active"
-
-# ── New API routes ────────────────────────────────────────────────────
-@app.route("/api/messages", methods=["GET"])
-def api_get_messages():
-    try:
-        cur = mysql.connection.cursor()
-        cur.execute("SELECT id, message FROM messages ORDER BY id DESC LIMIT 50")
-        rows = [{"id": r[0], "message": r[1]} for r in cur.fetchall()]
-        cur.close()
-        return jsonify({"status": "ok", "messages": rows, "count": len(rows)})
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
-
-
-@app.route("/api/messages", methods=["POST"])
-def api_post_message():
-    data = request.get_json()
-    text = (data or {}).get("message", "").strip()
-    if not text:
-        return jsonify({"status": "error", "error": "Message is empty"}), 400
-    if len(text) > 500:
-        return jsonify({"status": "error", "error": "Message too long"}), 400
-    try:
-        cur = mysql.connection.cursor()
-        cur.execute("INSERT INTO messages (message) VALUES (%s)", (text,))
-        mysql.connection.commit()
-        cur.close()
-        return jsonify({"status": "ok", "message": text})
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
-
-
-@app.route("/api/messages/<int:msg_id>", methods=["DELETE"])
-def api_delete_message(msg_id):
-    try:
-        cur = mysql.connection.cursor()
-        cur.execute("DELETE FROM messages WHERE id = %s", (msg_id,))
-        mysql.connection.commit()
-        affected = cur.rowcount
-        cur.close()
-        if affected == 0:
-            return jsonify({"status": "error", "error": "Not found"}), 404
-        return jsonify({"status": "ok", "deleted_id": msg_id})
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
-
-
-@app.route("/api/pods", methods=["GET"])
-def api_get_pods():
+def _get_pods_data():
     namespace = os.environ.get("POD_NAMESPACE", "default")
     v1 = get_k8s_client()
     if v1:
@@ -131,20 +71,94 @@ def api_get_pods():
                     "node": p.spec.node_name or "unknown",
                     "image": containers[0].image if containers else "unknown",
                 })
-            return jsonify({"status": "ok", "pods": result, "source": "live"})
-        except Exception as e:
-            return jsonify({"status": "error", "error": str(e)}), 500
-    else:
-        return jsonify({
-            "status": "ok",
-            "source": "simulated",
-            "pods": [
-                {"name": "flaskapp-demo", "status": "running",
-                 "restarts": 0, "node": "local-docker", "image": "flaskapp:latest"},
-                {"name": "mysql-0", "status": "running",
-                 "restarts": 0, "node": "local-docker", "image": "mysql:5.7"},
-            ]
-        })
+            return {"pods": result, "source": "live"}
+        except Exception:
+            pass
+    return {
+        "source": "simulated",
+        "pods": [
+            {"name": "flaskapp-demo", "status": "running",
+             "restarts": 0, "node": "local-docker", "image": "flaskapp:latest"},
+            {"name": "mysql-0", "status": "running",
+             "restarts": 0, "node": "local-docker", "image": "mysql:5.7"},
+        ]
+    }
+
+# ── Spike flag ────────────────────────────────────────────────────────
+SPIKE_FLAG = "/tmp/spike_active"
+
+# ── Existing route ────────────────────────────────────────────────────
+@app.route('/')
+def hello():
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text('SELECT message FROM messages')).fetchall()
+        messages = rows
+    except Exception:
+        messages = []
+    return render_template('index.html', messages=messages)
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    new_message = request.form.get('new_message')
+    with engine.begin() as conn:
+        conn.execute(text('INSERT INTO messages (message) VALUES (:msg)'),
+                     {"msg": new_message})
+    return jsonify({'message': new_message})
+
+# ── New API routes ────────────────────────────────────────────────────
+@app.route("/api/messages", methods=["GET"])
+def api_get_messages():
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, message FROM messages ORDER BY id DESC LIMIT 50")
+            ).fetchall()
+        return jsonify({"status": "ok",
+                        "messages": [{"id": r[0], "message": r[1]} for r in rows],
+                        "count": len(rows)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/messages", methods=["POST"])
+def api_post_message():
+    data = request.get_json()
+    text_val = (data or {}).get("message", "").strip()
+    if not text_val:
+        return jsonify({"status": "error", "error": "Message is empty"}), 400
+    if len(text_val) > 500:
+        return jsonify({"status": "error", "error": "Message too long"}), 400
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO messages (message) VALUES (:msg)"),
+                {"msg": text_val}
+            )
+        return jsonify({"status": "ok", "id": result.lastrowid, "message": text_val})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/messages/<int:msg_id>", methods=["DELETE"])
+def api_delete_message(msg_id):
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM messages WHERE id = :id"),
+                {"id": msg_id}
+            )
+        if result.rowcount == 0:
+            return jsonify({"status": "error", "error": "Not found"}), 404
+        return jsonify({"status": "ok", "deleted_id": msg_id})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/pods", methods=["GET"])
+def api_get_pods():
+    data = _get_pods_data()
+    return jsonify({"status": "ok", **data})
 
 
 @app.route("/api/spike", methods=["POST"])
@@ -172,12 +186,37 @@ def health():
 @app.route("/api/ready", methods=["GET"])
 def ready():
     try:
-        cur = mysql.connection.cursor()
-        cur.execute("SELECT 1")
-        cur.close()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
         return jsonify({"status": "ready"})
     except Exception:
         return jsonify({"status": "not ready"}), 503
+
+
+@app.route("/api/stream")
+def api_stream():
+    def event_stream():
+        while True:
+            try:
+                pod_data = _get_pods_data()
+                with engine.connect() as conn:
+                    count = conn.execute(
+                        text("SELECT COUNT(*) FROM messages")
+                    ).scalar()
+                payload = json.dumps({
+                    "pods": pod_data["pods"],
+                    "source": pod_data["source"],
+                    "msg_count": count,
+                })
+                yield f"data: {payload}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            time.sleep(3)
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if __name__ == '__main__':
