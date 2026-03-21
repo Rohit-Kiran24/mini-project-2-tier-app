@@ -2,13 +2,16 @@ import os
 import time
 import threading
 import json
+import logging
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
 
+logging.basicConfig(level=logging.INFO)
+
 app = Flask(__name__)
 
-# ── Database connection pool (created once, reused forever) ───────────
+# ── Database connection pool ───────────────────────────────────────────
 DB_URL = "mysql+pymysql://{user}:{pw}@{host}/{db}".format(
     user=os.environ.get("MYSQL_USER", "root"),
     pw=os.environ.get("MYSQL_PASSWORD", "admin"),
@@ -25,7 +28,20 @@ engine = create_engine(
     pool_recycle=3600,
 )
 
+def wait_for_db(retries=10, delay=2):
+    for attempt in range(retries):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            logging.info("Database ready after %d attempts", attempt + 1)
+            return True
+        except Exception as e:
+            logging.warning("DB not ready (attempt %d/%d): %s", attempt + 1, retries, e)
+            time.sleep(delay * (2 ** min(attempt, 4)))
+    raise RuntimeError("Database unavailable after %d retries" % retries)
+
 def init_db():
+    wait_for_db()
     with engine.connect() as conn:
         conn.execute(text('''
             CREATE TABLE IF NOT EXISTS messages (
@@ -87,7 +103,7 @@ def _get_pods_data():
 # ── Spike flag ────────────────────────────────────────────────────────
 SPIKE_FLAG = "/tmp/spike_active"
 
-# ── Existing route ────────────────────────────────────────────────────
+# ── Existing routes ───────────────────────────────────────────────────
 @app.route('/')
 def hello():
     try:

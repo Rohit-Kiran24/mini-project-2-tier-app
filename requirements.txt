@@ -5,3 +5,4 @@ SQLAlchemy
 PyMySQL
 kubernetes
 gunicorn
+gevent
