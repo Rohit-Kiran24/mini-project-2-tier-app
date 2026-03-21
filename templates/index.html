@@ -318,7 +318,17 @@ function setLoad(cpu,mem,rps){
   document.getElementById('rps-b').style.cssText=`width:${Math.min(rps/7,100)}%;background:#f59e0b`;
 }
 
-setInterval(loadPods,5000);
+const evtSource = new EventSource("/api/stream");
+evtSource.onmessage = function(e) {
+  const data = JSON.parse(e.data);
+  if (data.error) { addLog("SSE error: " + data.error, "err"); return; }
+  loadPods();
+  document.getElementById("st-msgs").textContent = data.msg_count;
+};
+evtSource.onerror = function() {
+  addLog("SSE connection lost - reconnecting...", "warn");
+};
+
 setInterval(()=>{
   uptimeSecs++;
   document.getElementById('st-uptime').textContent=fmtUp(uptimeSecs);
