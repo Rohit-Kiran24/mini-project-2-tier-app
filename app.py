@@ -4,12 +4,20 @@ import threading
 import json
 import logging
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
 
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per hour"],
+)
 
 # ── Database connection pool ───────────────────────────────────────────
 DB_URL = "mysql+pymysql://{user}:{pw}@{host}/{db}".format(
@@ -138,6 +146,7 @@ def api_get_messages():
 
 
 @app.route("/api/messages", methods=["POST"])
+@limiter.limit("20 per minute")
 def api_post_message():
     data = request.get_json()
     text_val = (data or {}).get("message", "").strip()
@@ -157,6 +166,7 @@ def api_post_message():
 
 
 @app.route("/api/messages/<int:msg_id>", methods=["DELETE"])
+@limiter.limit("20 per minute")
 def api_delete_message(msg_id):
     try:
         with engine.begin() as conn:

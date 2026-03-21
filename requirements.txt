@@ -6,3 +6,4 @@ PyMySQL
 kubernetes
 gunicorn
 gevent
+Flask-Limiter
