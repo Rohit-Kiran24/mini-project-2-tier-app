@@ -57,8 +57,8 @@ def get_k8s_client():
     except Exception:
         return None
 
-# ── Spike state ───────────────────────────────────────────────────────
-spike_active = False
+# ── Spike flag (file-based lock — works across Gunicorn workers) ──────
+SPIKE_FLAG = "/tmp/spike_active"
 
 # ── New API routes ────────────────────────────────────────────────────
 @app.route("/api/messages", methods=["GET"])
@@ -149,18 +149,19 @@ def api_get_pods():
 
 @app.route("/api/spike", methods=["POST"])
 def api_spike():
-    global spike_active
-    if spike_active:
+    if os.path.exists(SPIKE_FLAG):
         return jsonify({"status": "already_running"})
+    open(SPIKE_FLAG, "w").close()
     def burn_cpu(duration=10):
-        global spike_active
-        spike_active = True
         deadline = time.time() + duration
         while time.time() < deadline:
             _ = [x**2 for x in range(10000)]
-        spike_active = False
+        try:
+            os.remove(SPIKE_FLAG)
+        except FileNotFoundError:
+            pass
     threading.Thread(target=burn_cpu, daemon=True).start()
-    return jsonify({"status": "ok", "message": "Spike started for 10 seconds"})
+    return jsonify({"status": "ok", "message": "Spike started for 10s"})
 
 
 @app.route("/api/health", methods=["GET"])
