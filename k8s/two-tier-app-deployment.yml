@@ -21,10 +21,13 @@ spec:
           env:
             - name: MYSQL_HOST
               value: "mysql"
-            - name: MYSQL_PASSWORD
-              value: "admin"
             - name: MYSQL_USER
               value: "root"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: password
             - name: MYSQL_DB
               value: "mydb"
           ports:
