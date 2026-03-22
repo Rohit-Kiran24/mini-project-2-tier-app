@@ -1,0 +1,27 @@
+# kube-prometheus-stack values
+# Deploy with:
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm repo update
+# helm install monitoring prometheus-community/kube-prometheus-stack \
+#   -f k8s/prometheus-values.yaml \
+#   --namespace monitoring --create-namespace
+
+grafana:
+  enabled: true
+  adminPassword: "admin123"
+  service:
+    type: LoadBalancer
+
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    additionalScrapeConfigs:
+      - job_name: flask-app
+        static_configs:
+          - targets:
+              - two-tier-app-svc:5000
+        metrics_path: /metrics
+        scrape_interval: 15s
+
+alertmanager:
+  enabled: false
