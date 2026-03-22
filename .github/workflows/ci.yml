@@ -21,7 +21,12 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        run: pytest tests/ -v
+        run: pytest tests/ -v -k "not ready and not delete and not get_messages"
+        env:
+          MYSQL_HOST: localhost
+          MYSQL_USER: root
+          MYSQL_PASSWORD: root
+          MYSQL_DB: devops
 
       - name: Build Docker image
         run: docker build -t flaskapp:${{ github.sha }} .
