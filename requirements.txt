@@ -9,3 +9,4 @@ gevent
 Flask-Limiter
 flask-cors
 flask-talisman
+pytest
