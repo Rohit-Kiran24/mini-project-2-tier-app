@@ -7,3 +7,5 @@ kubernetes
 gunicorn
 gevent
 Flask-Limiter
+flask-cors
+flask-talisman

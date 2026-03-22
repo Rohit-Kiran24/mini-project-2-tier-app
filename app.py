@@ -6,6 +6,8 @@ import logging
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
+from flask_talisman import Talisman
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
 
@@ -18,6 +20,8 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per hour"],
 )
+CORS(app, origins=["http://localhost:5000"])
+Talisman(app, force_https=False, content_security_policy=False)
 
 # ── Database connection pool ───────────────────────────────────────────
 DB_URL = "mysql+pymysql://{user}:{pw}@{host}/{db}".format(
