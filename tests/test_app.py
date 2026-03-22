@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault('MYSQL_HOST', 'localhost')
 os.environ.setdefault('MYSQL_USER', 'root')
-os.environ.setdefault('MYSQL_PASSWORD', 'root')
+os.environ.setdefault('MYSQL_PASSWORD', 'REPLACE_ME')
 os.environ.setdefault('MYSQL_DB', 'devops')
 
 from app import app as flask_app

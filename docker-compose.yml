@@ -14,13 +14,13 @@ services:
 
     environment:
 
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
 
       MYSQL_DATABASE: devops
 
       MYSQL_USER: admin
 
-      MYSQL_PASSWORD: admin
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
 
     volumes:
 
@@ -34,7 +34,7 @@ services:
 
     healthcheck:
 
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
 
       interval: 10s
 
@@ -62,7 +62,7 @@ services:
 
       MYSQL_USER: root
 
-      MYSQL_PASSWORD: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
 
       MYSQL_DB: devops
 

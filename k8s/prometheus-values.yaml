@@ -8,7 +8,7 @@
 
 grafana:
   enabled: true
-  adminPassword: "admin123"
+  adminPassword: "REDACTED"
   service:
     type: LoadBalancer
 
