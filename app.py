@@ -11,7 +11,12 @@ from flask_talisman import Talisman
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
 
-logging.basicConfig(level=logging.INFO)
+# ── Structured JSON logging ───────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "msg": "%(message)s"}'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -45,10 +50,10 @@ def wait_for_db(retries=10, delay=2):
         try:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            logging.info("Database ready after %d attempts", attempt + 1)
+            logger.info("Database ready after %d attempts", attempt + 1)
             return True
         except Exception as e:
-            logging.warning("DB not ready (attempt %d/%d): %s", attempt + 1, retries, e)
+            logger.warning("DB not ready (attempt %d/%d): %s", attempt + 1, retries, e)
             time.sleep(delay * (2 ** min(attempt, 4)))
     raise RuntimeError("Database unavailable after %d retries" % retries)
 
