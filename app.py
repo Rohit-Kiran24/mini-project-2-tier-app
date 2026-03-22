@@ -65,7 +65,8 @@ def init_db():
         conn.execute(text('''
             CREATE TABLE IF NOT EXISTS messages (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                message TEXT
+                message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         '''))
         conn.commit()
@@ -147,10 +148,10 @@ def api_get_messages():
     try:
         with engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id, message FROM messages ORDER BY id DESC LIMIT 50")
+                text("SELECT id, message, created_at FROM messages ORDER BY id DESC LIMIT 50")
             ).fetchall()
         return jsonify({"status": "ok",
-                        "messages": [{"id": r[0], "message": r[1]} for r in rows],
+                        "messages": [{"id": r[0], "message": r[1], "created_at": str(r[2])} for r in rows],
                         "count": len(rows)})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
