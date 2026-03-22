@@ -2,5 +2,10 @@ mysql-data/
 *.sock
 __pycache__/
 *.pyc
+*.pyo
 .env
 .git/
+.github/
+tests/
+*.md
+.gitignore

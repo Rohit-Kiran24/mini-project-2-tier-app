@@ -1,2 +1,12 @@
-"mysql-data/" 
-"mysql-data/" 
+# "mysql-data/" 
+# "mysql-data/" 
+
+
+mysql-data/
+*.sock
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.log
+.DS_Store
