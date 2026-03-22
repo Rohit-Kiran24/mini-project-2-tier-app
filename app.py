@@ -146,13 +146,24 @@ def submit():
 @app.route("/api/messages", methods=["GET"])
 def api_get_messages():
     try:
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 20))
+        offset = (page - 1) * limit
         with engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id, message, created_at FROM messages ORDER BY id DESC LIMIT 50")
+                text("SELECT id, message, created_at FROM messages ORDER BY id DESC LIMIT :limit OFFSET :offset"),
+                {"limit": limit, "offset": offset}
             ).fetchall()
-        return jsonify({"status": "ok",
-                        "messages": [{"id": r[0], "message": r[1], "created_at": str(r[2])} for r in rows],
-                        "count": len(rows)})
+            total = conn.execute(text("SELECT COUNT(*) FROM messages")).scalar()
+        return jsonify({
+            "status": "ok",
+            "messages": [{"id": r[0], "message": r[1], "created_at": str(r[2])} for r in rows],
+            "count": len(rows),
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": (total + limit - 1) // limit
+        })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
