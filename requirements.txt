@@ -10,3 +10,4 @@ Flask-Limiter
 flask-cors
 flask-talisman
 pytest
+prometheus-flask-exporter

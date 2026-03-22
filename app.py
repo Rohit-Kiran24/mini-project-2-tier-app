@@ -8,6 +8,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from flask_talisman import Talisman
+from prometheus_flask_exporter import PrometheusMetrics
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
 
@@ -27,6 +28,7 @@ limiter = Limiter(
 )
 CORS(app, origins=["http://localhost:5000"])
 Talisman(app, force_https=False, content_security_policy=False)
+metrics = PrometheusMetrics(app)
 
 # ── Database connection pool ───────────────────────────────────────────
 DB_URL = "mysql+pymysql://{user}:{pw}@{host}/{db}".format(
