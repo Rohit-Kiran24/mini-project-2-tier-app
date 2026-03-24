@@ -1,130 +1,197 @@
- 
-# Flask App with MySQL Docker Setup
+# 🚀 Mini Project — 2-Tier Flask + MySQL on EKS
 
-This is a simple Flask app that interacts with a MySQL database. The app allows users to submit messages, which are then stored in the database and displayed on the frontend.
+A production-grade two-tier web application built with Flask and MySQL, deployed on AWS EKS with a real-time Kubernetes monitoring dashboard and full DevOps tooling.
 
-## Prerequisites
+[![CI](https://github.com/Rohit-Kiran24/mini-project-2-tier-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Rohit-Kiran24/mini-project-2-tier-app/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.9-blue)
+![Flask](https://img.shields.io/badge/flask-2.0.1-lightgrey)
+![MySQL](https://img.shields.io/badge/mysql-5.7-orange)
+![Kubernetes](https://img.shields.io/badge/kubernetes-EKS-326CE5)
+![Status](https://img.shields.io/badge/status-production--ready-brightgreen)
 
-Before you begin, make sure you have the following installed:
+---
 
-- Docker
-- Git (optional, for cloning the repository)
+## 📸 Dashboard
 
-## Setup
+A unified real-time dashboard showing live messages, pod health, CPU/memory load, and cluster events — all updating via Server-Sent Events (no polling).
 
-1. Clone this repository (if you haven't already):
+---
 
-   ```bash
-   git clone https://github.com/your-username/your-repo-name.git
-   ```
+## 🏗️ Architecture
+```
+Browser
+  │
+  ▼
+Flask App (Gunicorn + Gevent, 4 workers)
+  │               │
+  ▼               ▼
+MySQL 5.7     /metrics ──► Prometheus ──► Grafana
+(StatefulSet)
+  │
+  ▼
+Fluent Bit ──► AWS CloudWatch Logs
+```
 
-2. Navigate to the project directory:
+---
 
-   ```bash
-   cd your-repo-name
-   ```
+## ✨ Features
 
-3. Create a `.env` file in the project directory to store your MySQL environment variables:
+| Feature | Detail |
+|---------|--------|
+| Real-time dashboard | Server-Sent Events — zero polling overhead |
+| Production server | Gunicorn + Gevent workers |
+| DB connection pool | SQLAlchemy QueuePool, pool_pre_ping, pool_recycle |
+| Rate limiting | 20 req/min on POST + DELETE via Flask-Limiter |
+| Security headers | CORS + CSP via flask-talisman |
+| Prometheus metrics | `/metrics` endpoint via prometheus-flask-exporter |
+| DB startup retry | Exponential backoff, 10 attempts max |
+| Health probes | Liveness `/api/health` + Readiness `/api/ready` |
+| Autoscaling | HPA — min 1, max 4 pods at 70% CPU |
+| Log shipping | Fluent Bit DaemonSet → CloudWatch |
+| CI/CD | GitHub Actions + Jenkins pipeline |
+| Security scanning | Trivy on every build |
+| RBAC | ServiceAccount + Role + RoleBinding for k8s API access |
+| NetworkPolicy | MySQL only accessible from Flask pods |
+| Pagination | `?page=1&limit=20` on messages API |
 
-   ```bash
-   touch .env
-   ```
+---
 
-4. Open the `.env` file and add your MySQL configuration:
+## 📁 Project Structure
+```
+mini-project-2-tier-app/
+├── app.py                        # Flask application (API + SSE + k8s client)
+├── templates/
+│   └── index.html                # Real-time dashboard UI
+├── tests/
+│   └── test_app.py               # pytest unit tests
+├── k8s/
+│   ├── two-tier-app-deployment.yml  # Flask Deployment
+│   ├── two-tier-app-svc.yml         # Flask Service
+│   ├── mysql-deployment.yml         # MySQL StatefulSet
+│   ├── mysql-svc.yml                # MySQL Service
+│   ├── flask-rbac.yaml              # RBAC for k8s API access
+│   ├── flask-hpa.yaml               # Horizontal Pod Autoscaler
+│   ├── mysql-secret.yaml            # DB credentials Secret
+│   ├── mysql-pvc.yml                # Persistent Volume Claim
+│   ├── mysql-netpol.yaml            # NetworkPolicy
+│   ├── fluent-bit.yaml              # Log shipping DaemonSet
+│   └── prometheus-values.yaml       # kube-prometheus-stack Helm values
+├── flask-app-chart/              # Helm chart for Flask app
+├── mysql-chart/                  # Helm chart for MySQL
+├── eks-manifests/                # EKS-specific manifests
+├── .github/workflows/ci.yml      # GitHub Actions CI
+├── Dockerfile                    # Multi-stage ready
+├── docker-compose.yml            # Local development
+├── Jenkinsfile                   # Jenkins CI/CD pipeline
+├── .env.example                  # Environment variable template
+└── .dockerignore
+```
 
-   ```
-   MYSQL_HOST=mysql
-   MYSQL_USER=your_username
-   MYSQL_PASSWORD=your_password
-   MYSQL_DB=your_database
-   ```
+---
 
-## Usage
-
-1. Start the containers using Docker Compose:
-
-   ```bash
-   docker-compose up --build
-   ```
-
-2. Access the Flask app in your web browser:
-
-   - Frontend: http://localhost
-   - Backend: http://localhost:5000
-
-3. Create the `messages` table in your MySQL database:
-
-   - Use a MySQL client or tool (e.g., phpMyAdmin) to execute the following SQL commands:
-   
-     ```sql
-     CREATE TABLE messages (
-         id INT AUTO_INCREMENT PRIMARY KEY,
-         message TEXT
-     );
-     ```
-
-4. Interact with the app:
-
-   - Visit http://localhost to see the frontend. You can submit new messages using the form.
-   - Visit http://localhost:5000/insert_sql to insert a message directly into the `messages` table via an SQL query.
-
-## Cleaning Up
-
-To stop and remove the Docker containers, press `Ctrl+C` in the terminal where the containers are running, or use the following command:
-
+## 🚀 Quick Start (Local)
 ```bash
-docker-compose down
+# Clone
+git clone https://github.com/Rohit-Kiran24/mini-project-2-tier-app.git
+cd mini-project-2-tier-app
+
+# Copy env
+cp .env.example .env
+
+# Run
+docker-compose up --build
+
+# Open http://localhost:5000
 ```
 
-## To run this two-tier application using  without docker-compose
+---
 
-- First create a docker image from Dockerfile
+## ☸️ EKS Deployment
 ```bash
-docker build -t flaskapp .
+# 1. Secrets + Storage
+kubectl apply -f k8s/mysql-secret.yaml
+kubectl apply -f k8s/mysql-pv.yml
+kubectl apply -f k8s/mysql-pvc.yml
+
+# 2. MySQL
+kubectl apply -f k8s/mysql-deployment.yml
+kubectl apply -f k8s/mysql-svc.yml
+
+# 3. Flask App
+kubectl apply -f k8s/flask-rbac.yaml
+kubectl apply -f k8s/two-tier-app-deployment.yml
+kubectl apply -f k8s/two-tier-app-svc.yml
+
+# 4. Autoscaling + Security
+kubectl apply -f k8s/flask-hpa.yaml
+kubectl apply -f k8s/mysql-netpol.yaml
+
+# 5. Monitoring
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install monitoring prometheus-community/kube-prometheus-stack \
+  -f k8s/prometheus-values.yaml \
+  --namespace monitoring --create-namespace
+
+# 6. Log shipping
+kubectl apply -f k8s/fluent-bit.yaml
 ```
 
-- Now, make sure that you have created a network using following command
+---
+
+## 🎯 Live Demo Commands
 ```bash
-docker network create twotier
+# Watch pods in real time
+kubectl get pods -w
+
+# Trigger pod crash (watch dashboard go red → green)
+kubectl delete pod <flask-pod-name> --force
+
+# Scale up (watch 3 pods appear on dashboard)
+kubectl scale deployment two-tier-app --replicas=3
+
+# Check HPA
+kubectl get hpa
+
+# View metrics
+curl http://<EXTERNAL-IP>:5000/metrics
 ```
 
-- Attach both the containers in the same network, so that they can communicate with each other
+---
 
-i) MySQL container 
-```bash
-docker run -d \
-    --name mysql \
-    -v mysql-data:/var/lib/mysql \
-    --network=twotier \
-    -e MYSQL_DATABASE=mydb \
-    -e MYSQL_ROOT_PASSWORD=admin \
-    -p 3306:3306 \
-    mysql:5.7
+## 🔌 API Reference
 
-```
-ii) Backend container
-```bash
-docker run -d \
-    --name flaskapp \
-    --network=twotier \
-    -e MYSQL_HOST=mysql \
-    -e MYSQL_USER=root \
-    -e MYSQL_PASSWORD=admin \
-    -e MYSQL_DB=mydb \
-    -p 5000:5000 \
-    flaskapp:latest
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Dashboard UI |
+| GET | `/api/messages?page=1&limit=20` | Paginated messages |
+| POST | `/api/messages` | Post a message |
+| DELETE | `/api/messages/<id>` | Delete a message |
+| GET | `/api/pods` | Live pod status |
+| POST | `/api/spike` | Trigger 10s CPU spike |
+| GET | `/api/health` | Liveness probe |
+| GET | `/api/ready` | Readiness probe |
+| GET | `/api/stream` | SSE stream (pod + message updates) |
+| GET | `/metrics` | Prometheus metrics |
 
-```
+---
 
-## Notes
+## 🛠️ Tech Stack
 
-- Make sure to replace placeholders (e.g., `your_username`, `your_password`, `your_database`) with your actual MySQL configuration.
+| Layer | Technology |
+|-------|------------|
+| Backend | Python 3.9, Flask 2.0.1 |
+| Database | MySQL 5.7, SQLAlchemy 2.0 |
+| Server | Gunicorn + Gevent |
+| Container | Docker, Docker Compose |
+| Orchestration | Kubernetes on AWS EKS |
+| CI/CD | GitHub Actions, Jenkins |
+| Monitoring | Prometheus, Grafana |
+| Logging | Fluent Bit → AWS CloudWatch |
+| Security | Trivy, flask-talisman, NetworkPolicy, RBAC |
 
-- This is a basic setup for demonstration purposes. In a production environment, you should follow best practices for security and performance.
+---
 
-- Be cautious when executing SQL queries directly. Validate and sanitize user inputs to prevent vulnerabilities like SQL injection.
+## 👨‍💻 Author
 
-- If you encounter issues, check Docker logs and error messages for troubleshooting.
-
-```
-
+**Rohit Kiran** — [GitHub](https://github.com/Rohit-Kiran24) this one 
